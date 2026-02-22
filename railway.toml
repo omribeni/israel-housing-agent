@@ -1,0 +1,8 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# 05:00 UTC = ~07:00 Israel (winter) / 08:00 Israel (summer)
+cronSchedule = "0 5 * * *"
+restartPolicyType = "NEVER"
