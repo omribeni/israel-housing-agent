@@ -12,6 +12,7 @@ dependencies = [
     "anthropic>=0.40",
     "tenacity>=9.0",
     "python-dotenv>=1.0",
+    "telethon>=1.36",
 ]
 
 [project.optional-dependencies]
