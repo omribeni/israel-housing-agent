@@ -23,6 +23,7 @@ from src.collectors.news_calcalist import CalcalistCollector
 from src.collectors.news_globes import GlobesCollector
 from src.collectors.news_themarker import TheMarkerCollector
 from src.collectors.news_ynet import YnetCollector
+from src.collectors.telegram_channels import TelegramChannelCollector
 from src.config import Settings
 
 
@@ -60,9 +61,10 @@ async def main() -> None:
         ("TheMarker", TheMarkerCollector(settings)),
         ("Dira Gov", DiraGovCollector(settings)),
         ("Land Gov", LandGovCollector(settings)),
+        ("Telegram Channels", TelegramChannelCollector(settings)),
     ]
 
-    print("Running all 7 collectors (scraping only, no API keys needed)...\n")
+    print("Running all 8 collectors (scraping only, no API keys needed)...\n")
 
     total = 0
     for name, collector in collectors:

@@ -39,6 +39,13 @@
 - **www.gov.il is behind Cloudflare bot protection** — returns 403 for all programmatic requests regardless of headers.
 - The Land Gov collector queries data.gov.il for ILA-related data. Currently returns 0 because the "apartments for sale without lottery" resource (`ea93b3c9-15e2-4b74-a632-097ee53737e4`) is empty, and no lottery records match ILA-specific queries.
 
+### Telegram Channels
+- Uses Telethon with a user account session (not a bot). Requires `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` in env vars.
+- Session file at `data/telegram.session` — created once via `python -m src.collectors.telegram_channels --login`. Must be present on Railway's persistent volume.
+- If session expires, the collector logs an error and returns empty — other collectors still run.
+- Channel list is in `config.py` (`TELEGRAM_CHANNELS`). Add/remove channel usernames without the `@` prefix.
+- Only collects messages containing government program keywords (subset of `SEARCH_KEYWORDS_HE`).
+
 ## Target Areas
 
 Central (Tel Aviv, Ramat Gan, Givatayim, Petah Tikva), Sharon (Netanya, Herzliya, Ra'anana, Kfar Saba, Hod HaSharon), Gezer (regional council settlements + Mazkeret Batya), Ashdod area (Ashdod, Ashkelon, Gan Yavne, Yavne).
