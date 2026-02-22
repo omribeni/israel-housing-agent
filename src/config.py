@@ -72,6 +72,7 @@ TARGET_AREAS: list[AreaConfig] = [
             "כפר ביל\"ו",
             "עינב",
             "פדיה",
+            "מזכרת בתיה",
         ],
         cities_en=[
             "Gezer Regional Council",
@@ -84,6 +85,7 @@ TARGET_AREAS: list[AreaConfig] = [
             "Kfar Bilu",
             "Einav",
             "Padya",
+            "Mazkeret Batya",
         ],
     ),
     AreaConfig(

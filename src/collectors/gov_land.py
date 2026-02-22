@@ -1,21 +1,14 @@
 """
-Collector for the Israel Land Authority (ILA / rmi) site at land.gov.il.
+Collector for Israel Land Authority (ILA / רשות מקרקעי ישראל) data.
 
-Scraping strategy
------------------
-The Israel Land Authority (Rashut Mekarke'ei Yisrael) publishes information
-about land tenders, housing marketing, and public announcements on land.gov.il.
+Data source: data.gov.il open data portal (CKAN API).
 
-The site is SharePoint-based with Hebrew content. We scrape:
-1. The main page for featured announcements and banners.
-2. Known paths for tenders and land marketing news.
-3. Any news/updates feed we can locate.
+The original land.gov.il SharePoint site has been shut down — all URLs
+redirect to www.gov.il, which is behind Cloudflare bot protection.
 
-Because this is a government SharePoint site, the HTML structure may include
-deeply nested tables, ASP.NET view-state blobs, and Hebrew right-to-left
-markup. We use multiple CSS selector strategies to extract content.
-
-All network calls are wrapped in try/except so errors never crash the pipeline.
+This collector queries data.gov.il for ILA-related datasets and the
+"apartments for sale without lottery" resource as a complement to the
+DiraGovCollector which handles lottery data.
 """
 
 from __future__ import annotations
@@ -24,37 +17,27 @@ import logging
 from datetime import datetime
 
 import httpx
-from bs4 import BeautifulSoup, Tag
 
 from src.collectors.base import BaseCollector, RawArticle
 from src.config import Settings
-from src.utils.http_client import fetch_page
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Constants
+# data.gov.il CKAN API
 # ---------------------------------------------------------------------------
 
-_BASE_URL = "https://land.gov.il"
+_CKAN_BASE = "https://data.gov.il/api/3/action/datastore_search"
 
-# Pages to scrape. The ILA site often reorganises its paths, so we try
-# several known locations. Paths that return 404 are silently skipped.
-_TARGET_PAGES = [
-    # Main homepage -- often has featured tenders / news banners
-    _BASE_URL,
-    # News and announcements section
-    f"{_BASE_URL}/he/Pages/News.aspx",
-    f"{_BASE_URL}/he/Pages/newsList.aspx",
-    # Tenders and land marketing
-    f"{_BASE_URL}/he/Pages/Tenders.aspx",
-    f"{_BASE_URL}/he/Pages/LandMarketing.aspx",
-    f"{_BASE_URL}/he/Pages/HousingMarketing.aspx",
-    # Sometimes tenders are under a different path
-    f"{_BASE_URL}/he/PublishingPages/Pages/Tenders.aspx",
-]
+# "Apartments for sale without lottery" — complements the lottery dataset
+_APARTMENTS_RESOURCE_ID = "ea93b3c9-15e2-4b74-a632-097ee53737e4"
 
-# Browser-like user-agent to reduce chance of being blocked.
+# Lottery dataset (same as gov_dira) — query with a different filter to find
+# records specifically marketed by the Israel Land Authority
+_LOTTERY_RESOURCE_ID = "7c8255d0-49ef-49db-8904-4cf917586031"
+
+_PAGE_SIZE = 50
+
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -63,395 +46,194 @@ _USER_AGENT = (
 
 
 class LandGovCollector(BaseCollector):
-    """Collects tender and land marketing announcements from land.gov.il."""
+    """Collects ILA-related housing data from data.gov.il."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-
-    # ------------------------------------------------------------------
-    # BaseCollector interface
-    # ------------------------------------------------------------------
 
     @property
     def source_name(self) -> str:
         return "land_gov"
 
     async def collect(self) -> list[RawArticle]:
-        """Fetch and parse announcements from the ILA website.
+        """Fetch ILA-related data from data.gov.il open data portal."""
+        articles: list[RawArticle] = []
 
-        Tries multiple pages; aggregates whatever we can extract.
-        Returns an empty list if everything fails.
-        """
-        all_articles: list[RawArticle] = []
-        seen_urls: set[str] = set()
-
-        for page_url in _TARGET_PAGES:
-            try:
-                html = await self._fetch_with_browser_headers(page_url)
-                page_articles = self._parse_page(html, page_url)
-
-                # Deduplicate by URL within a single collection run.
-                for article in page_articles:
-                    if article.url not in seen_urls:
-                        seen_urls.add(article.url)
-                        all_articles.append(article)
-
-                logger.debug(
-                    "Extracted %d items from %s", len(page_articles), page_url
-                )
-            except httpx.HTTPStatusError as exc:
-                # 404 / 403 are expected -- the site restructures often.
-                logger.debug(
-                    "HTTP %s for %s (expected for missing pages)",
-                    exc.response.status_code,
-                    page_url,
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to fetch/parse ILA page: %s", page_url, exc_info=True
-                )
-
-        logger.info(
-            "LandGovCollector finished: %d total articles", len(all_articles)
-        )
-        return all_articles
-
-    # ------------------------------------------------------------------
-    # HTTP helpers
-    # ------------------------------------------------------------------
-
-    async def _fetch_with_browser_headers(self, url: str) -> str:
-        """Fetch a page with browser-like headers.
-
-        We use httpx directly (instead of fetch_page) so we can set
-        Accept-Language and other headers that help with Hebrew content
-        and SharePoint compatibility.
-        """
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(self._settings.http_timeout),
+            timeout=30,
+            headers={"User-Agent": _USER_AGENT},
             follow_redirects=True,
-            headers={
-                "User-Agent": _USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "he-IL,he;q=0.9,en;q=0.8",
-            },
-            verify=True,
         ) as client:
-            resp = await client.get(url)
+            # Try the apartments-for-sale resource
+            apt_articles = await self._fetch_apartments(client)
+            articles.extend(apt_articles)
+
+            # Query lottery data for ILA-marketed projects
+            ila_articles = await self._fetch_ila_lotteries(client)
+            articles.extend(ila_articles)
+
+        logger.info("LandGovCollector finished: %d total articles", len(articles))
+        return articles
+
+    async def _fetch_apartments(self, client: httpx.AsyncClient) -> list[RawArticle]:
+        """Fetch apartments-for-sale-without-lottery data."""
+        try:
+            resp = await client.get(
+                _CKAN_BASE,
+                params={
+                    "resource_id": _APARTMENTS_RESOURCE_ID,
+                    "limit": _PAGE_SIZE,
+                },
+            )
             resp.raise_for_status()
-            resp.encoding = "utf-8"
-            return resp.text
+            data = resp.json()
 
-    # ------------------------------------------------------------------
-    # HTML parsing
-    # ------------------------------------------------------------------
+            if not data.get("success"):
+                return []
 
-    def _parse_page(self, html: str, page_url: str) -> list[RawArticle]:
-        """Extract announcements/tenders from an HTML page.
+            records = data.get("result", {}).get("records", [])
+            if not records:
+                logger.debug("Apartments-for-sale resource returned 0 records")
+                return []
 
-        The ILA site (SharePoint-based) uses various layouts depending on
-        the page type. We try multiple extraction strategies in order of
-        specificity.
-        """
-        soup = BeautifulSoup(html, "html.parser")
-        articles: list[RawArticle] = []
-
-        # Strategy 1: SharePoint list items / news web parts.
-        articles.extend(self._extract_sharepoint_items(soup, page_url))
-
-        # Strategy 2: Structured card / tile elements.
-        if not articles:
-            articles.extend(self._extract_card_items(soup, page_url))
-
-        # Strategy 3: Generic link extraction from content area.
-        if not articles:
-            articles.extend(self._extract_content_links(soup, page_url))
-
-        # Strategy 4: Table-based tender listings (common in gov sites).
-        if not articles:
-            articles.extend(self._extract_table_rows(soup, page_url))
-
-        return articles
-
-    def _extract_sharepoint_items(
-        self, soup: BeautifulSoup, page_url: str
-    ) -> list[RawArticle]:
-        """Extract items from SharePoint list/news web parts."""
-        articles: list[RawArticle] = []
-
-        # SharePoint often renders news in divs with specific class patterns.
-        sp_selectors = [
-            "div.ms-listviewtable tr",
-            "div.slm-layout-main div.item",
-            "div.dfwp-list li",
-            "div.news-item",
-            "div.tender-item",
-            "div[class*='NewsItem']",
-            "div[class*='TenderItem']",
-            "div[class*='news-webpart'] li",
-            "div[class*='cbs-List'] li",
-            "ul.cbs-List li",
-        ]
-
-        for selector in sp_selectors:
-            elements = soup.select(selector)
-            for el in elements:
-                article = self._element_to_article(el, page_url, "sharepoint_item")
+            logger.info("Fetched %d apartment-for-sale records", len(records))
+            articles = []
+            for record in records:
+                article = self._apartment_to_article(record)
                 if article:
                     articles.append(article)
-            if articles:
-                break  # Found items with this selector; no need to try more.
-
-        return articles
-
-    def _extract_card_items(
-        self, soup: BeautifulSoup, page_url: str
-    ) -> list[RawArticle]:
-        """Extract items from card/tile-style layouts."""
-        articles: list[RawArticle] = []
-
-        card_selectors = [
-            "div.card",
-            "div.tile",
-            "article",
-            "div.announcement",
-            "div.tender-card",
-            "div[class*='Card']",
-            "div[class*='Tile']",
-            "li.result-item",
-        ]
-
-        for selector in card_selectors:
-            cards = soup.select(selector)
-            for card in cards:
-                article = self._element_to_article(card, page_url, "card_item")
-                if article:
-                    articles.append(article)
-            if articles:
-                break
-
-        return articles
-
-    def _extract_content_links(
-        self, soup: BeautifulSoup, page_url: str
-    ) -> list[RawArticle]:
-        """Extract links from the main content area of the page.
-
-        Filters out navigation/footer links by focusing on the main content
-        region and links that look like announcements or tenders.
-        """
-        articles: list[RawArticle] = []
-
-        # Try to isolate the main content area.
-        content_area = (
-            soup.find("main")
-            or soup.find("div", {"id": "contentBox"})
-            or soup.find("div", {"id": "DeltaPlaceHolderMain"})
-            or soup.find("div", role="main")
-            or soup.find("div", {"class": "ms-rtestate-field"})
-            or soup.body
-        )
-
-        if not content_area:
             return articles
 
-        # Keywords that suggest a link is about housing/tenders (Hebrew).
-        _relevance_keywords = [
-            "מכרז", "שיווק", "קרקע", "דירה", "דיור", "מגורים",
-            "הודעה", "חדש", "פרסום", "tender", "land", "housing",
-            "מחיר", "הגרלה", "בניה", "בנייה", "תכנון",
-        ]
+        except Exception:
+            logger.debug("Failed to fetch apartments-for-sale data", exc_info=True)
+            return []
 
-        for link in content_area.find_all("a", href=True):
-            href: str = link["href"]
-            text = link.get_text(strip=True)
-
-            # Skip empty links, anchors, javascript, and very short text.
-            if not text or len(text) < 5:
-                continue
-            if href.startswith("#") or href.startswith("javascript:"):
-                continue
-
-            # Check if the link text or URL suggests relevance.
-            combined = (text + " " + href).lower()
-            is_relevant = any(kw in combined for kw in _relevance_keywords)
-            if not is_relevant:
-                continue
-
-            full_url = self._resolve_url(href)
-
-            articles.append(
-                RawArticle(
-                    url=full_url,
-                    title=text[:200],
-                    snippet=text[:500],
-                    source=self.source_name,
-                    metadata={"type": "content_link", "page": page_url},
-                )
-            )
-
-        return articles
-
-    def _extract_table_rows(
-        self, soup: BeautifulSoup, page_url: str
-    ) -> list[RawArticle]:
-        """Extract tender/announcement data from HTML tables.
-
-        Government sites frequently list tenders in <table> elements.
-        """
-        articles: list[RawArticle] = []
-
-        for table in soup.find_all("table"):
-            rows = table.find_all("tr")
-            # Skip tables with fewer than 2 rows (just a header).
-            if len(rows) < 2:
-                continue
-
-            # Use the first row as headers (if present).
-            header_cells = rows[0].find_all(["th", "td"])
-            headers = [cell.get_text(strip=True) for cell in header_cells]
-
-            for row in rows[1:]:
-                cells = row.find_all("td")
-                if not cells:
-                    continue
-
-                # Build a text representation of the row.
-                cell_texts = [cell.get_text(strip=True) for cell in cells]
-                row_text = " | ".join(t for t in cell_texts if t)
-
-                if not row_text or len(row_text) < 10:
-                    continue
-
-                # Find the first link in the row.
-                link_tag = row.find("a", href=True)
-                url = self._resolve_url(link_tag["href"]) if link_tag else page_url
-                title = link_tag.get_text(strip=True) if link_tag else cell_texts[0]
-
-                # Build metadata from header-cell pairs.
-                metadata: dict[str, str] = {"type": "table_row", "page": page_url}
-                for i, header in enumerate(headers):
-                    if i < len(cell_texts) and header and cell_texts[i]:
-                        metadata[header] = cell_texts[i]
-
-                articles.append(
-                    RawArticle(
-                        url=url,
-                        title=title[:200] if title else row_text[:200],
-                        snippet=row_text[:500],
-                        source=self.source_name,
-                        metadata=metadata,
-                    )
-                )
-
-        return articles
-
-    # ------------------------------------------------------------------
-    # Shared helpers
-    # ------------------------------------------------------------------
-
-    def _element_to_article(
-        self, el: Tag, page_url: str, extraction_type: str
-    ) -> RawArticle | None:
-        """Convert a generic HTML element to a RawArticle.
-
-        Attempts to extract a title, link, snippet, and optional date.
-        Returns None if there is not enough content to form a useful article.
-        """
+    async def _fetch_ila_lotteries(self, client: httpx.AsyncClient) -> list[RawArticle]:
+        """Fetch lottery records that mention ILA/land authority marketing."""
         try:
-            # Extract title from heading tags or the first link.
-            title_tag = el.find(["h1", "h2", "h3", "h4", "a"])
-            title = title_tag.get_text(strip=True) if title_tag else ""
+            resp = await client.get(
+                _CKAN_BASE,
+                params={
+                    "resource_id": _LOTTERY_RESOURCE_ID,
+                    "limit": _PAGE_SIZE,
+                    "sort": "LotteryExecutionDate desc",
+                    "q": "רשות מקרקעי",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
-            # Get full text content as snippet.
-            full_text = el.get_text(strip=True)
-            snippet = full_text[:500]
+            if not data.get("success"):
+                return []
 
-            # Skip elements with very little content.
-            if not title and len(full_text) < 15:
-                return None
+            records = data.get("result", {}).get("records", [])
+            if not records:
+                logger.debug("No ILA-specific lottery records found")
+                return []
 
-            if not title:
-                title = full_text[:150]
+            logger.info("Fetched %d ILA-related lottery records", len(records))
+            articles = []
+            for record in records:
+                article = self._lottery_to_article(record)
+                if article:
+                    articles.append(article)
+            return articles
 
-            # Find a link.
-            link_tag = el.find("a", href=True)
-            url = self._resolve_url(link_tag["href"]) if link_tag else page_url
+        except Exception:
+            logger.debug("Failed to fetch ILA lottery data", exc_info=True)
+            return []
 
-            # Try to extract a date from the element.
-            date = self._extract_date_from_element(el)
+    def _apartment_to_article(self, record: dict) -> RawArticle | None:
+        """Convert an apartment-for-sale record to a RawArticle."""
+        try:
+            project_name = record.get("ProjectName", "") or record.get("project_name", "")
+            city = record.get("CityName", "") or record.get("city_name", "")
+
+            title_parts = [p for p in [project_name, city] if p]
+            title = " - ".join(title_parts) if title_parts else "דירה למכירה"
+
+            snippet_parts = []
+            for key in ("ContractorName", "RoomCount", "Price", "Area", "Floor"):
+                val = record.get(key, "")
+                if val:
+                    snippet_parts.append(f"{key}: {val}")
+            snippet = " | ".join(snippet_parts) if snippet_parts else "דירה למכירה ללא הגרלה"
 
             return RawArticle(
-                url=url,
+                url="https://dira.moch.gov.il",
                 title=title,
-                snippet=snippet,
+                snippet=snippet[:500],
                 source=self.source_name,
-                published_date=date,
-                metadata={"type": extraction_type, "page": page_url},
+                metadata={"type": "apartment_for_sale"},
             )
         except Exception:
             return None
 
-    def _resolve_url(self, href: str) -> str:
-        """Resolve a potentially relative URL to an absolute one."""
-        if not href:
-            return _BASE_URL
-        if href.startswith("http://") or href.startswith("https://"):
-            return href
-        if href.startswith("/"):
-            return f"{_BASE_URL}{href}"
-        return f"{_BASE_URL}/{href}"
+    def _lottery_to_article(self, record: dict) -> RawArticle | None:
+        """Convert an ILA lottery record to a RawArticle."""
+        try:
+            lottery_id = record.get("LotteryId", "")
+            project_name = record.get("ProjectName", "")
+            city = record.get("LamasName", "")
+            provider = record.get("ProviderName", "")
+            units = record.get("LotteryHousingUnits", "")
+            marketing_method = record.get("MarketingMethodDesc", "")
+            status = record.get("LotteryStatusValue", "")
+            lottery_date = record.get("LotteryExecutionDate", "")
+
+            title_parts = [p for p in [project_name, city] if p]
+            title = " - ".join(title_parts) if title_parts else f"שיווק קרקע {lottery_id}"
+
+            snippet_parts = []
+            if marketing_method:
+                snippet_parts.append(f"שיטת שיווק: {marketing_method}")
+            if provider:
+                snippet_parts.append(f"יזם: {provider}")
+            if units:
+                snippet_parts.append(f"יח\"ד: {units}")
+            if status:
+                snippet_parts.append(f"סטטוס: {status}")
+            snippet = " | ".join(snippet_parts) if snippet_parts else "שיווק קרקעות"
+
+            url = f"https://dira.moch.gov.il/Lottery/{lottery_id}" if lottery_id else "https://land.gov.il"
+
+            published = self._try_parse_date(lottery_date)
+
+            return RawArticle(
+                url=url,
+                title=title,
+                snippet=snippet[:500],
+                source=self.source_name,
+                published_date=published,
+                metadata={
+                    k: str(v)
+                    for k, v in {
+                        "lottery_id": lottery_id,
+                        "city": city,
+                        "provider": provider,
+                        "marketing_method": marketing_method,
+                        "type": "ila_lottery",
+                    }.items()
+                    if v
+                },
+            )
+        except Exception:
+            return None
 
     @staticmethod
-    def _extract_date_from_element(el: Tag) -> datetime | None:
-        """Try to find and parse a date within an HTML element.
-
-        Looks for common date patterns in time tags or spans with
-        date-related classes.
-        """
-        # <time> tag with datetime attribute
-        time_tag = el.find("time")
-        if time_tag:
-            dt_attr = time_tag.get("datetime", "")
-            parsed = _try_parse_date(dt_attr)
-            if parsed:
-                return parsed
-            # Fall back to text content of the <time> tag.
-            parsed = _try_parse_date(time_tag.get_text(strip=True))
-            if parsed:
-                return parsed
-
-        # Spans or divs with date-related classes.
-        for date_el in el.find_all(["span", "div"], class_=lambda c: c and "date" in c.lower()):
-            parsed = _try_parse_date(date_el.get_text(strip=True))
-            if parsed:
-                return parsed
-
+    def _try_parse_date(date_str: str | None) -> datetime | None:
+        if not date_str:
+            return None
+        for fmt in (
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%dT%H:%M:%S%z",
+            "%Y-%m-%d",
+            "%d/%m/%Y",
+        ):
+            try:
+                return datetime.strptime(str(date_str).strip(), fmt)
+            except (ValueError, TypeError):
+                continue
         return None
-
-
-# ---------------------------------------------------------------------------
-# Module-level utility
-# ---------------------------------------------------------------------------
-
-def _try_parse_date(date_str: str) -> datetime | None:
-    """Attempt to parse a date string in common formats used by Israeli gov sites."""
-    if not date_str:
-        return None
-    for fmt in (
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S.%f",
-        "%Y-%m-%dT%H:%M:%SZ",
-        "%Y-%m-%dT%H:%M:%S%z",
-        "%Y-%m-%d",
-        "%d/%m/%Y",
-        "%d/%m/%Y %H:%M",
-        "%d/%m/%Y %H:%M:%S",
-        "%d.%m.%Y",
-        "%d.%m.%Y %H:%M",
-    ):
-        try:
-            return datetime.strptime(date_str, fmt)
-        except (ValueError, TypeError):
-            continue
-    return None

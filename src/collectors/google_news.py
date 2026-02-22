@@ -56,6 +56,7 @@ class GoogleNewsCollector(BaseCollector):
         async with httpx.AsyncClient(
             timeout=30,
             headers={"User-Agent": _USER_AGENT},
+            follow_redirects=True,
         ) as client:
             for idx, query in enumerate(GOOGLE_NEWS_QUERIES):
                 try:

@@ -20,7 +20,7 @@ from src.utils.http_client import fetch_page
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://www.ynet.co.il"
-_SECTION_URL = f"{_BASE_URL}/economy/realestate"
+_SECTION_URL = f"{_BASE_URL}/economy/category/8315"
 _MAX_ARTICLES = 20
 
 
@@ -100,7 +100,7 @@ class YnetCollector(BaseCollector):
         # under the economy section.
         if "/article/" in href:
             return True
-        if "/economy/" in href and href.rstrip("/") != "/economy/realestate":
+        if "/economy/" in href and "/category/8315" not in href:
             # Must have something beyond the section root
             parts = href.rstrip("/").split("/")
             if len(parts) >= 4:

@@ -20,7 +20,7 @@ from src.utils.http_client import fetch_page
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://www.globes.co.il"
-_SECTION_URL = f"{_BASE_URL}/news/tag/%D7%AA%D7%92_%D7%A0%D7%93%D7%9C%D7%9F"
+_SECTION_URL = f"{_BASE_URL}/news/home.aspx?fid=607"
 _MAX_ARTICLES = 20
 
 
