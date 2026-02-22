@@ -61,6 +61,12 @@ try:
 except ImportError:
     pass
 
+try:
+    from src.collectors.telegram_channels import TelegramChannelCollector
+    _OPTIONAL_COLLECTORS.append(TelegramChannelCollector)
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 
