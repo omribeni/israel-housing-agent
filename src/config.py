@@ -154,6 +154,37 @@ GOOGLE_NEWS_QUERIES: list[str] = [
 
 
 # ---------------------------------------------------------------------------
+# Telegram channel monitoring
+# ---------------------------------------------------------------------------
+
+# Government program keywords for filtering Telegram messages.
+# Subset of SEARCH_KEYWORDS_HE focused on gov programs only.
+TELEGRAM_GOV_KEYWORDS: list[str] = [
+    "מחיר למשתכן",
+    "מחיר מופחת",
+    "דירה בהנחה",
+    "דירה בהגרלה",
+    "מחיר מטרה",
+    "דיור בר השגה",
+    "הגרלת דירות",
+    "רשות מקרקעי ישראל",
+    "משרד הבינוי והשיכון",
+    "מכרז דירות",
+    "שיווק קרקעות",
+]
+
+# Public Telegram channels to monitor for housing program updates.
+# Add/remove channels as needed — use the username without the @ prefix.
+TELEGRAM_CHANNELS: list[str] = [
+    "dira_behanaha",
+    "mechir_lamishtaken",
+    "nadlan_israel",
+    "dira_gov_il",
+    "realestate_il",
+]
+
+
+# ---------------------------------------------------------------------------
 # Runtime settings (loaded from environment variables)
 # ---------------------------------------------------------------------------
 
@@ -212,4 +243,17 @@ class Settings:
     # Deduplication
     dedup_days: int = field(
         default_factory=lambda: int(os.environ.get("DEDUP_DAYS", "30"))
+    )
+
+    # Telegram channel monitoring (optional — collector skipped if not set)
+    telegram_api_id: str = field(
+        default_factory=lambda: os.environ.get("TELEGRAM_API_ID", "")
+    )
+    telegram_api_hash: str = field(
+        default_factory=lambda: os.environ.get("TELEGRAM_API_HASH", "")
+    )
+    telegram_session_path: str = field(
+        default_factory=lambda: os.environ.get(
+            "TELEGRAM_SESSION_PATH", "data/telegram"
+        )
     )
