@@ -176,11 +176,14 @@ TELEGRAM_GOV_KEYWORDS: list[str] = [
 # Public Telegram channels to monitor for housing program updates.
 # Add/remove channels as needed — use the username without the @ prefix.
 TELEGRAM_CHANNELS: list[str] = [
-    "dira_behanaha",
-    "mechir_lamishtaken",
-    "nadlan_israel",
-    "dira_gov_il",
-    "realestate_il",
+    "dira_il",           # דירה בהנחה, פורום פתוח - מחיר למשתכן (~390 members)
+    "Migrashimisrael",   # נדלן ישראל (~475 members)
+    "dirabehanacha",     # דירה בהנחה - ריכוז קבוצות (~110 members)
+    "Nadlani",           # נדלן - כונס נכסים - מציאות (~1920 members)
+    "tama38",            # תמא 38 - התחדשות עירונית - פינוי בינוי (~200 members)
+    "nadlanmarket",      # דירות למכירה/להשכרה באזור המרכז (~215 members)
+    "findmehome",        # דירות מפה לאוזן כל הארץ (~420 members)
+    "NadlanNews",        # פורום הנדלן - דיווחים (~93 members)
 ]
 
 
