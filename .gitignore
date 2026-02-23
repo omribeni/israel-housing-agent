@@ -22,6 +22,7 @@ build/
 # Data
 data/*.db
 data/*.sqlite
+data/*.session
 
 # OS
 .DS_Store
