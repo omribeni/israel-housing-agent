@@ -2,14 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
+# Copy project metadata and source together (pip install needs both)
 COPY pyproject.toml .
-RUN pip install --no-cache-dir .
-
-# Copy source code
 COPY src/ src/
 
-# Create data directory for SQLite (Railway Volume should be mounted here)
+# Install the package and all dependencies
+RUN pip install --no-cache-dir .
+
+# Create data directory (Railway Volume should be mounted here)
 RUN mkdir -p /app/data
 
 CMD ["python", "-m", "src.main"]

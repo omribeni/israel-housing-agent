@@ -59,6 +59,7 @@ SYSTEM_PROMPT = """\
 - **שרון**: נתניה, הרצליה, רעננה, כפר סבא, הוד השרון
 - **גזר**: מועצה אזורית גזר (כולל כרמי יוסף, בית נחמיה, בית עוזיאל, חולדה, יד רמב"ם, כפר ביל"ו, עינב, פדיה)
 - **אשדוד והסביבה**: אשדוד, אשקלון, גן יבנה, יבנה
+- **גן רווה**: מועצה אזורית גן רווה, באר יעקב, נס ציונה, רחובות, גדרה, קריית עקרון
 
 כתבות שעוסקות בערים או אזורים אחרים (למשל באר שבע, חיפה, ירושלים) — סמן כ-relevant: false.
 כתבות כלליות על מדיניות דיור ארצית שאינן מתייחסות לאזור ספציפי — סמן כ-relevant: false.
@@ -193,8 +194,10 @@ class ClaudeFilter:
                     system=SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": user_message}],
                     output_config={
-                        "type": "json_schema",
-                        "json_schema": _RESPONSE_JSON_SCHEMA,
+                        "format": {
+                            "type": "json_schema",
+                            "schema": _RESPONSE_JSON_SCHEMA["schema"],
+                        },
                     },
                 )
 

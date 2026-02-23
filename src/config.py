@@ -94,6 +94,28 @@ TARGET_AREAS: list[AreaConfig] = [
         cities_he=["אשדוד", "אשקלון", "גן יבנה", "יבנה"],
         cities_en=["Ashdod", "Ashkelon", "Gan Yavne", "Yavne"],
     ),
+    AreaConfig(
+        name_en="Gan Raveh",
+        name_he="גן רווה",
+        cities_he=[
+            "מועצה אזורית גן רווה",
+            "גן רווה",
+            "באר יעקב",
+            "נס ציונה",
+            "רחובות",
+            "גדרה",
+            "קריית עקרון",
+        ],
+        cities_en=[
+            "Gan Raveh Regional Council",
+            "Gan Raveh",
+            "Beer Yaakov",
+            "Ness Ziona",
+            "Rehovot",
+            "Gedera",
+            "Kiryat Ekron",
+        ],
+    ),
 ]
 
 # Flattened city lists across all target areas
@@ -218,7 +240,7 @@ class Settings:
 
     # Claude settings
     claude_model: str = field(
-        default_factory=lambda: os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
+        default_factory=lambda: os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
     )
     claude_max_tokens: int = field(
         default_factory=lambda: int(os.environ.get("CLAUDE_MAX_TOKENS", "4096"))

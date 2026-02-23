@@ -48,7 +48,7 @@
 
 ## Target Areas
 
-Central (Tel Aviv, Ramat Gan, Givatayim, Petah Tikva), Sharon (Netanya, Herzliya, Ra'anana, Kfar Saba, Hod HaSharon), Gezer (regional council settlements + Mazkeret Batya), Ashdod area (Ashdod, Ashkelon, Gan Yavne, Yavne).
+Central (Tel Aviv, Ramat Gan, Givatayim, Petah Tikva), Sharon (Netanya, Herzliya, Ra'anana, Kfar Saba, Hod HaSharon), Gezer (regional council settlements + Mazkeret Batya), Ashdod area (Ashdod, Ashkelon, Gan Yavne, Yavne), Gan Raveh (Beer Yaakov, Ness Ziona, Rehovot, Gedera, Kiryat Ekron).
 
 ## Running Locally
 

@@ -1,0 +1,15 @@
+.git
+.env
+.venv
+venv
+__pycache__
+*.pyc
+data/
+tests/
+docs/
+test_collectors.py
+.DS_Store
+*.egg-info
+.pytest_cache
+.coverage
+htmlcov
